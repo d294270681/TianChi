@@ -11,10 +11,7 @@ tf.get_logger().setLevel('ERROR')
 
 class Bert_Simmilar(tf.keras.Model):
   def train_step(self, data):   
-    seq1 = data['seq1']
-    seq2 = data['seq2'] 
-    y = data['label']
-
+    (seq1 ,seq2) ,y = data
     text_inputs = [seq1, seq2]
 
     with tf.GradientTape() as tape:
@@ -29,10 +26,7 @@ class Bert_Simmilar(tf.keras.Model):
     return {m.name: m.result() for m in self.metrics}
   
   def test_step(self, data):
-    seq1 = data['seq1']
-    seq2 = data['seq2'] 
-    y = data['label']
-
+    (seq1 ,seq2) ,y = data
     text_inputs = [seq1, seq2]
 
     y_pred = self(text_inputs, training=False)
@@ -90,14 +84,14 @@ def train():
   train_data = pd.read_csv(train_data_path)
   train_target = train_data.pop('label')
   train_seq_1, train_seq_2 = np.split(train_data.values,2,1)
-  train_dataset = tf.data.Dataset.from_tensor_slices({"seq1":train_seq_1, "seq2":train_seq_2, "label":train_target.values})
+
   test_data = pd.read_csv(test_data_path)
   test_target = test_data.pop('label')
   test_seq_1, test_seq_2 = np.split(test_data.values,2,1)
-  test_dataset = tf.data.Dataset.from_tensor_slices({"seq1":test_seq_1, "seq2":test_seq_2, "label":test_target.values})
-
+ 
+  train_dataset = tf.data.Dataset.from_tensor_slices({"text_input_0":train_seq_1, "text_input_1":train_seq_2, "label":train_target.values})
   train_dataset = train_dataset.shuffle(len(train_data)).batch(batch_size)
-  test_dataset = test_dataset.shuffle(len(test_data)).batch(batch_size)
+
 
   if not os.path.exists(ckpt_path):
     os.makedirs(ckpt_path)
@@ -107,7 +101,10 @@ def train():
   model = make_or_restore_model(train_dataset)
  
   callback = get_callback_method()
-  history = model.fit(x=train_dataset, validation_data=test_dataset, epochs=epochs, callbacks = callback)
+  history = model.fit(x=(train_seq_1, train_seq_2), y = train_target.values, 
+    validation_data=((test_seq_1, test_seq_2), test_target.values),
+    epochs=epochs, callbacks = callback, batch_size = batch_size)
+  
   
 if __name__ == '__main__':
   print("start training")

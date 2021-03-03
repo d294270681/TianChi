@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from config import *
+from config.train_config import *
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text as text 
@@ -8,7 +8,7 @@ from official.nlp import optimization
 from transformers import BertTokenizer
 import os
 
-from pretrain_model.model import *
+from model.model import *
 
 tf.get_logger().setLevel('ERROR')
 
@@ -46,7 +46,7 @@ def get_bert_model(loss, optimizer, metrics):
 def get_callback_method(model_name):
   if model_name == "bert":
     return [tf.keras.callbacks.ModelCheckpoint(
-            filepath=ckpt_path+"match_model_{epoch}:val_loss-{val_loss:.2f}:val_AUC-{val_AUC:.3f}:val_BinAcc-{val_BinaryAccuracy:.3f}",
+            filepath=ckpt_path+"/match_model_{epoch}:val_loss-{val_loss:.2f}:val_AUC-{val_AUC:.3f}:val_BinAcc-{val_BinaryAccuracy:.3f}",
             save_best_only=True, 
             monitor="val_AUC",
             mode='max',
@@ -54,10 +54,7 @@ def get_callback_method(model_name):
         ),tf.keras.callbacks.CSVLogger(log_path+'training.log')]
   if model_name == "roberta":
     return [tf.keras.callbacks.ModelCheckpoint(
-            filepath=ckpt_path+"match_model_{epoch}:val_loss-{val_loss:.2f}:val_AUC-{val_AUC:.3f}:val_BinAcc-{val_BinaryAccuracy:.3f}",
-            save_best_only=True, 
-            monitor="val_AUC",
-            mode='max',
+            filepath=ckpt_path+"/match_model_{epoch}:val_loss-{val_loss:.2f}:val_AUC-{val_AUC:.3f}:val_BinAcc-{val_BinaryAccuracy:.3f}",
             verbose=1,
             save_weights_only=True
         ),tf.keras.callbacks.CSVLogger(log_path+'training.log')]
@@ -72,20 +69,43 @@ def make_or_restore_model(dataset, model_name):
   metricsA = tf.metrics.BinaryAccuracy(name='BinaryAccuracy')
   metricsB = tf.keras.metrics.AUC(name='AUC')
   if checkpoints:
-    latest_checkpoint = max(checkpoints, key=os.path.getctime)
+    latest_checkpoint = max(checkpoints)[0:-6]
     print("Restoring from", latest_checkpoint)
     if model_name == "bert":
       model = tf.keras.models.load_model(latest_checkpoint, compile=False)
     if model_name == "roberta":
-      model = Roberta_Simmiliar("pretrained_model_path")
+      model = Roberta_Simmiliar(pretrained_model_path)
       model.load_weights(latest_checkpoint)
     model.compile(optimizer=optimizer, loss=loss, metrics=[metricsA,metricsB])
     return model
   print("Creating a new model")
   return build_model(loss, optimizer, [metricsA,metricsB], model_name)
 
+def anti_data_to_tensor(tokenizer, data):
+  tokenizer.save_vocabulary(ckpt_path+"/../roberta_vocab.txt")
+  count = len(open(ckpt_path+"/../roberta_vocab.txt", 'r').readlines())
+  data_number = []
+  for i in data:
+    cls_of_row_1 = [int(k) if int(k)<count else 0 for k in i[0].split(" ")]
+    cls_of_row_2 = [int(k) if int(k)<count else 0 for k in i[1].split(" ")]
+    if len(cls_of_row_1)+len(cls_of_row_2)+3 <= seq_length:
+      row = tokenizer.build_inputs_with_special_tokens(cls_of_row_1, cls_of_row_2)
+      row += [0]*(seq_length-len(row))
+    else:  
+      cls_of_row_2 = cls_of_row_2[0:len(cls_of_row_2)+1-(len(cls_of_row_1)+len(cls_of_row_2)+4-seq_length)]
+      row = tokenizer.build_inputs_with_special_tokens(cls_of_row_1, cls_of_row_2)
+    data_number.append(row)
+  return tf.constant(np.array(data_number))
+
+
 def train():
   print("create dataset")
+
+  
+  if not os.path.exists(ckpt_path):
+    os.makedirs(ckpt_path)
+  if not os.path.exists(log_path):
+    os.makedirs(log_path)
 
   if pretrained_model=="bert":
     print("choose bert")
@@ -116,39 +136,13 @@ def train():
       anti_train_data = tokenizer_roberta(train_data.values.tolist(),padding='max_length',max_length =seq_length,return_tensors="tf",truncation=True)
       anti_test_data = tokenizer_roberta(test_data.values.tolist(),padding='max_length',max_length =seq_length,return_tensors="tf",truncation=True)
 
-      train_data_number = []
-      for i in train_data.values:
-        cls_of_row_1 = [int(k) for k in i[0].split(" ")]
-        cls_of_row_2 = [int(k) for k in i[1].split(" ")]
-        if len(cls_of_row_1)+len(cls_of_row_2)+3 <= seq_length:
-          row = tokenizer_roberta.build_inputs_with_special_tokens(cls_of_row_1, cls_of_row_2)
-          row += [0]*(seq_length-len(row))
-        else:  
-          cls_of_row_2 = cls_of_row_2[0:len(cls_of_row_2)+1-(len(cls_of_row_1)+len(cls_of_row_2)+4-seq_length)]
-          row = tokenizer_roberta.build_inputs_with_special_tokens(cls_of_row_1, cls_of_row_2)
-        train_data_number.append(row)
-      anti_train_data['input_ids'] = tf.constant(np.array(train_data_number))
 
-      test_data_number = []
-      for i in test_data.values:
-        cls_of_row_1 = [int(k) for k in i[0].split(" ")]
-        cls_of_row_2 = [int(k) for k in i[1].split(" ")]
-        if len(cls_of_row_1)+len(cls_of_row_2)+3 <= seq_length:
-          row = tokenizer_roberta.build_inputs_with_special_tokens(cls_of_row_1, cls_of_row_2)
-          row += [0]*(seq_length-len(row))
-        else:  
-          cls_of_row_2 = cls_of_row_2[0:len(cls_of_row_2)+1-(len(cls_of_row_1)+len(cls_of_row_2)+4-seq_length)]
-          row = tokenizer_roberta.build_inputs_with_special_tokens(cls_of_row_1, cls_of_row_2)
-        test_data_number.append(row)   
-      anti_test_data['input_ids'] = tf.constant(np.array(test_data_number)) 
+      anti_train_data['input_ids'] = anti_data_to_tensor(tokenizer_roberta, train_data.values)
+      anti_test_data['input_ids'] = anti_data_to_tensor(tokenizer_roberta, test_data.values)
 
   train_dataset = tf.data.Dataset.from_tensor_slices({"text_input_0":train_seq_1, "text_input_1":train_seq_2, "label":train_target.values})
   train_dataset = train_dataset.shuffle(len(train_data)).batch(batch_size)
 
-  if not os.path.exists(ckpt_path):
-    os.makedirs(ckpt_path)
-  if not os.path.exists(log_path):
-    os.makedirs(log_path)
 
   model = make_or_restore_model(train_dataset, pretrained_model)
  

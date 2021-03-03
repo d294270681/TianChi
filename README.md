@@ -4,10 +4,12 @@
 # 两种预训练模型
 1.BERT
 2.Roberta
-
+3.esim
 
 # 脱敏数据训练结果
-roberta-90.2
+roberta-79.9
+esim-82.4
 
 
-# 直接运行train.py脚本
+# 主目录直接运行train.py脚本-》roberta
+# esim文件夹下运行train.py脚本-》esim
